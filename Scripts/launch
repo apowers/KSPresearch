@@ -1,0 +1,99 @@
+clearscreen.
+
+set MyOrbitAngle to 90.
+set MyOrbitAltitude to 100000.
+
+// begin launch sequence
+print "Launching to " + MyOrbitAltitude + "m at " + MyOrbitAngle + "deg. in T-".
+from { local countdown is 5. } until countdown = 0 step {
+  set countdown to countdown -1.
+} do { 
+  print "..." + countdown.
+  wait 1.
+}
+
+print "LIFTOFF!".
+
+// stage whenever there is no more fuel available
+when MAXTHRUST = 0 then {
+  stage.
+  preserve.
+}.
+
+set MyThrottle to 1.0.
+lock THROTTLE to MyThrottle.
+
+set MyHeading to HEADING(360,90).
+lock STEERING to MyHeading.
+
+// ascent profile
+until SHIP:APOAPSIS > MyOrbitAltitude {
+  // manage heading
+  if SHIP:VELOCITY:SURFACE:MAG < 50 {
+    set MyHeading to HEADING(360,90).
+  } else if SHIP:ALTITUDE < 10000 {
+    set MyHeading to HEADING(MyOrbitAngle,(90 - ALTITUDE / 200)).
+  } else if ALTITUDE < 50000 {
+    set MyHeading to HEADING(MyOrbitAngle,(55 - ALTITUDE / 900)).
+  } else {
+    set MyHeading to HEADING(MyOrbitAngle,0).
+  }
+  
+  // manage velocity
+  if SHIP:ALTITUDE < 10000 {
+    set MaxVelocity to 300.
+  } else if SHIP:ALTITUDE < 20000 {
+    set MaxVelocity to round((SHIP:ALTITUDE / 30),0).  
+  } else if SHIP:ALTITUDE < 30000 {
+    set MaxVelocity to round((SHIP:ALTITUDE / 25),0).  
+  } else if SHIP:ALTITUDE < 40000 {
+    set MaxVelocity to round((SHIP:ALTITUDE / 15),0).  
+  } else {
+    set MaxVelocity to round((SHIP:ALTITUDE / 10),0).  
+  }
+  
+  // manage throttle 
+  if SHIP:VELOCITY:SURFACE:MAG > ( MaxVelocity + 200 ) {
+    set MyThrottle to 0.5.
+  } else if SHIP:VELOCITY:SURFACE:MAG > ( MaxVelocity + 100 ) {
+    set MyThrottle to 0.6.
+  } else if SHIP:VELOCITY:SURFACE:MAG > ( MaxVelocity + 50 ) {
+    set MyThrottle to 0.7.
+  } else if SHIP:VELOCITY:SURFACE:MAG > MaxVelocity {
+    set MyThrottle to 0.8.
+  } else {
+    set MyThrottle to 1.0.
+  }
+}
+
+print "Standing by for orbital insertion.".
+
+when SHIP:ALTITUDE > 71000 then {
+  print "Deploy fairing and comms.".
+  for Fairing in SHIP:MODULESNAMED("ModuleProceduralFairing") {
+    Fairing:DOEVENT("deploy").
+  }
+  wait 1.
+  for Comms in SHIP:PARTSDUBBEDPATTERN("Antenna") {
+    if Comms:MODULES:CONTAINS("ModuleAnimationGroup") {
+      Comms:GETMODULE("ModuleAnimationGroup"):DOEVENT("deploy antenna").
+    }
+  }
+}
+
+// time warp
+
+// orbital insertion to near circular
+until PERIAPSIS > ( MyOrbitAltitude - 3000 ) {
+  if VERTICALSPEED > 10 {
+    set MyHeading to PROGRADE.
+    set MyThrottle to 0.
+  } else {
+    set MyHeading to HEADING(MyOrbitAngle,3).
+    set MyThrottle to 1.0.
+  }
+}
+
+set SHIP:CONTROL:PILOTMAINTHROTTLE to 0.
+
+print "COMPLETE".
