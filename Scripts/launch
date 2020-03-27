@@ -1,99 +1,180 @@
-clearscreen.
-
+// Default orbital parameters
 set MyOrbitAngle to 90.
-set MyOrbitAltitude to 100000.
+set MyOrbitAltitude to 80000.
+set MyHeadingAltitude to 70000.
+set MyAscentTurnSpeed to 100.
+SET MyAscentTurnAlt TO 1000.
+
+// termital config
+clearscreen.
+set TERMINAL:WIDTH to 45.
+set TERMINAL:HEIGHT to 20.
+
+// dynamic variables
+set MyThrottle to 1.0.
+lock THROTTLE to MyThrottle.
+
+set MyHeading to UP.
+lock STEERING to MyHeading.
+
+// Boosters haven't decoupled yet.
+set ActiveBoosters to 1.
+
+// Prompt for Orbit Altitude and Heading
+LOCAL gui IS GUI(200).
+// Add widgets to the GUI
+LOCAL label IS gui:ADDLABEL("Select Orbit Parameters").
+SET label:STYLE:ALIGN TO "CENTER".
+SET label:STYLE:HSTRETCH TO True. // Fill horizontally
+LOCAL altitudeBox to gui:AddVBox.
+altitudeBox:ADDLABEL("Select Altitude:").
+// altitudeBox:AddRadioButton("10k", False). // launching from the moon requires a different staging process
+altitudeBox:AddRadioButton("80k", True).
+altitudeBox:AddRadioButton("100k", False).
+altitudeBox:AddRadioButton("250k", False).
+
+LOCAL angleBox to gui:AddVBox.
+angleBox:ADDLABEL("Select Angle:").
+angleBox:AddRadioButton("45 - Inclined", False).
+angleBox:AddRadioButton("84 - Minmus", False).
+angleBox:AddRadioButton("90 - Equatorial", True).
+angleBox:AddRadioButton("180 - Polar", False).
+
+LOCAL launch TO gui:ADDBUTTON("Launch").
+gui:SHOW().
+
+set altitudeBox:onRadioChange to { 
+  parameter B.
+  if B:text = "100k" {
+    SET MyOrbitAltitude to 100000.
+  } else if B:text = "250k" {
+    SET MyOrbitAltitude to 250000.
+  } else if B:text = "KEO" {
+    SET MyOrbitAltitude to 2863330.
+  } else if B:text = "10k" {
+    SET MyOrbitAltitude to 10000.
+    SET MyHeadingAltitude to 1000.
+  } else {
+    SET MyOrbitAltitude to 80000.
+  }
+}.
+
+set angleBox:onRadioChange to { 
+  parameter B.
+  if B:text = "84 - Minmus" {
+    SET MyOrbitAngle to 84.
+  } else if B:text = "45 - Inclined" {
+    SET MyOrbitAngle to 45.
+  } else if B:text = "180 - Polar" {
+    SET MyOrbitAngle to 180.
+  } else {
+    SET MyOrbitAngle to 90.
+  }
+}.
+
+LOCAL isDone IS FALSE.
+SET launch:ONCLICK TO { SET isDone to TRUE. }.
+wait until isDone.
+
+gui:HIDE().
 
 // begin launch sequence
-print "Launching to " + MyOrbitAltitude + "m at " + MyOrbitAngle + "deg. in T-".
+print "Launching to " + MyOrbitAltitude + "m at " + MyOrbitAngle + " deg. in T-minus".
 from { local countdown is 5. } until countdown = 0 step {
   set countdown to countdown -1.
 } do { 
   print "..." + countdown.
   wait 1.
 }
+print "ENGAGE!".
+stage.
 
-print "LIFTOFF!".
-
-// stage whenever there is no more fuel available
-when MAXTHRUST = 0 then {
-  stage.
+// Stage when any engine has no fuel
+when APOAPSIS < MyOrbitAltitude then {
+  // if launch boosters are empty
+  // how can I tell if launch boosters are empty without triggering empty seperation boosters
+  // maybe only check once, using an activation flag?
+  // this should be OK even when the launch vehicle doesn't have boosters.
+  if ActiveBoosters > 0 {
+    list ENGINES in Elist.
+    for Engine in Elist {
+      if Engine:FLAMEOUT {
+        stage.
+        set ActiveBoosters to 0.
+        break.
+      }
+    }
+  }
+  // if there is no thrust -- won't trigger on empty boosters as long as another engine is active.
+  if SHIP:MAXTHRUST = 0 or SHIP:AVAILABLETHRUST = 0 {
+    stage.
+  }
   preserve.
-}.
+}. 
 
-set MyThrottle to 1.0.
-lock THROTTLE to MyThrottle.
+// Up First
+// wait until VERTICALSPEED > MyAscentTurnSpeed.
+wait until ALTITUDE > MyAscentTurnAlt.
+// wait until ActiveBoosters = 0.
 
-set MyHeading to HEADING(360,90).
-lock STEERING to MyHeading.
+// Ascent Profile
+print "Beginning Ascent Turn".
 
-// ascent profile
+// Smooth heading change
 until SHIP:APOAPSIS > MyOrbitAltitude {
-  // manage heading
-  if SHIP:VELOCITY:SURFACE:MAG < 50 {
-    set MyHeading to HEADING(360,90).
-  } else if SHIP:ALTITUDE < 10000 {
-    set MyHeading to HEADING(MyOrbitAngle,(90 - ALTITUDE / 200)).
-  } else if ALTITUDE < 50000 {
-    set MyHeading to HEADING(MyOrbitAngle,(55 - ALTITUDE / 900)).
-  } else {
-    set MyHeading to HEADING(MyOrbitAngle,0).
-  }
-  
-  // manage velocity
-  if SHIP:ALTITUDE < 10000 {
-    set MaxVelocity to 300.
-  } else if SHIP:ALTITUDE < 20000 {
-    set MaxVelocity to round((SHIP:ALTITUDE / 30),0).  
-  } else if SHIP:ALTITUDE < 30000 {
-    set MaxVelocity to round((SHIP:ALTITUDE / 25),0).  
-  } else if SHIP:ALTITUDE < 40000 {
-    set MaxVelocity to round((SHIP:ALTITUDE / 15),0).  
-  } else {
-    set MaxVelocity to round((SHIP:ALTITUDE / 10),0).  
-  }
-  
-  // manage throttle 
-  if SHIP:VELOCITY:SURFACE:MAG > ( MaxVelocity + 200 ) {
-    set MyThrottle to 0.5.
-  } else if SHIP:VELOCITY:SURFACE:MAG > ( MaxVelocity + 100 ) {
-    set MyThrottle to 0.6.
-  } else if SHIP:VELOCITY:SURFACE:MAG > ( MaxVelocity + 50 ) {
-    set MyThrottle to 0.7.
-  } else if SHIP:VELOCITY:SURFACE:MAG > MaxVelocity {
-    set MyThrottle to 0.8.
-  } else {
-    set MyThrottle to 1.0.
-  }
+  set MyHeading to HEADING(MyOrbitAngle,(90 - ( 90 * ((ALTITUDE - MyAscentTurnAlt) / MyHeadingAltitude ) ^ 0.5))).
 }
 
-print "Standing by for orbital insertion.".
+print "Standing by for orbit maneuver.".
+set MyThrottle to 0.
 
-when SHIP:ALTITUDE > 71000 then {
-  print "Deploy fairing and comms.".
+// deploy fairing at 70km
+when SHIP:ALTITUDE > 70000 then {
   for Fairing in SHIP:MODULESNAMED("ModuleProceduralFairing") {
-    Fairing:DOEVENT("deploy").
-  }
-  wait 1.
-  for Comms in SHIP:PARTSDUBBEDPATTERN("Antenna") {
-    if Comms:MODULES:CONTAINS("ModuleAnimationGroup") {
-      Comms:GETMODULE("ModuleAnimationGroup"):DOEVENT("deploy antenna").
+    if Fairing:ALLEVENTNAMES:CONTAINS("deploy") {
+      print "Deploying fairing.".
+      Fairing:DOEVENT("Deploy").
     }
   }
 }
 
-// time warp
-
-// orbital insertion to near circular
-until PERIAPSIS > ( MyOrbitAltitude - 3000 ) {
-  if VERTICALSPEED > 10 {
-    set MyHeading to PROGRADE.
-    set MyThrottle to 0.
-  } else {
-    set MyHeading to HEADING(MyOrbitAngle,3).
-    set MyThrottle to 1.0.
-  }
+// Activate lights and action group 10 for antennas and solar panels
+when SHIP:ALTITUDE > 71000 then { 
+  print "Activating Lights and Group 10.".
+  set LIGHTS to True.
+  set AG10 to True. 
 }
 
+// time warp to apoapsis
+set WARP to 3.
+
+// hold heading until maneuver
+until VERTICALSPEED < 15 {
+  set MyHeading to HEADING(MyOrbitAngle,0).
+}
+
+set WARP to 0.
+
+// orbital insertion
+set MyThrottle to 1.
+set MyHeadingAngle to 0.
+until PERIAPSIS > ( MyOrbitAltitude - 5000 ) {
+  // TODO: instead of this hack, calculate node time and execute it
+  
+  // try to keep vertical speed near zero, adjusting heading to compensate.
+  if VERTICALSPEED < 0 and MyHeadingAngle < 10 {
+    set MyHeadingAngle to MyHeadingAngle + 1.
+    set MyHeading to HEADING(MyOrbitAngle,MyHeadingAngle).
+  } else if VERTICALSPEED > 1 and MyHeadingAngle > -10 {
+    set MyHeadingAngle to MyHeadingAngle - 1.
+    set MyHeading to HEADING(MyOrbitAngle,MyHeadingAngle).
+  } 
+  // wait a second before re-checking
+  wait 1.0.
+}
+set MyThrottle to 0.
+
+// throttle to zero before releasing control
 set SHIP:CONTROL:PILOTMAINTHROTTLE to 0.
 
-print "COMPLETE".
+print "Orbit Achieved".
