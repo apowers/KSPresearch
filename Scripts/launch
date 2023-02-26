@@ -9,25 +9,24 @@ set TERMINAL:HEIGHT to 20.
 // Default orbital parameters
 set MyOrbitAngle to 90.
 set MyOrbitAltitude to 100000.
-set MyNoAtmoOrbitAltitude to 25000.
-set MyAscentTurnAlt TO 10000.
-set MyHeadingAltitude to 85000. // Set to the edge of space. 70km on Kerbin, 85km in JNSQ.
+set MyNoAtmoOrbitAltitude to 45000.
+set MyHeadingAltitude to 70000. // Set to the edge of space. 70km on Kerbin, 85km in JNSQ.
 set SHIP:CONTROL:PILOTMAINTHROTTLE to 0. // Set throttle to 0 when control is returned to the pilot.
 set MyThrottle to 1.
 set MyHeading to UP.
-set MyAscentProfile to "Gradual".
+set MyAscentProfile to "Gravity".
 
 // Boosters haven't decoupled yet.
 set ActiveBoosters to 1.
 
 FUNCTION LaunchMenu {
   // Prompt for Orbit Altitude and Heading
-  LOCAL gui IS GUI(200).
+  LOCAL LaunchGUI IS GUI(200).
   // Add widgets to the GUI
-  LOCAL label IS gui:ADDLABEL("Select Orbit Parameters").
+  LOCAL label IS LaunchGUI:ADDLABEL("Select Orbit Parameters").
   SET label:STYLE:ALIGN TO "CENTER".
   SET label:STYLE:HSTRETCH TO True. // Fill horizontally
-  LOCAL altitudeBox to gui:AddVBox.
+  LOCAL altitudeBox to LaunchGUI:AddVBox.
   altitudeBox:ADDLABEL("Select Altitude:").
   if BODY:ATM:Exists = False {
     altitudeBox:AddRadioButton("25k", False). // launching from a planet with no atmosphere
@@ -37,20 +36,21 @@ FUNCTION LaunchMenu {
   altitudeBox:AddRadioButton("200k", False).
   altitudeBox:AddRadioButton("KEO", False).
 
-  LOCAL angleBox to gui:AddVBox.
+  LOCAL angleBox to LaunchGUI:AddVBox.
   angleBox:ADDLABEL("Select Angle:").
   angleBox:AddRadioButton("45 - Inclined", False).
   angleBox:AddRadioButton("84 - Minmus", False).
   angleBox:AddRadioButton("90 - Equatorial", True).
   angleBox:AddRadioButton("180 - Polar", False).
 
-  LOCAL ascentBox to gui:AddVBox.
+  LOCAL ascentBox to LaunchGUI:AddVBox.
   ascentBox:ADDLABEL("Select Ascent Profile:").
-  ascentBox:AddRadioButton("Traditional", False).
-  ascentBox:AddRadioButton("Gradual", True).
+  ascentBox:AddRadioButton("Staged", False).
+  ascentBox:AddRadioButton("Gravity", True).
+  ascentBox:AddRadioButton("HighDrag", False).
 
-  LOCAL launch TO gui:ADDBUTTON("Launch").
-  gui:SHOW().
+  LOCAL launch TO LaunchGUI:ADDBUTTON("Launch").
+  LaunchGUI:SHOW().
 
   set altitudeBox:onRadioChange to { 
     parameter B.
@@ -62,8 +62,8 @@ FUNCTION LaunchMenu {
     } else if B:text = "200k" {
       SET MyOrbitAltitude to 200000.
     } else if B:text = "KEO" {
-  //    SET MyOrbitAltitude to 2863330. //Stock
-      SET MyOrbitAltitude to 8968110. //JNSQ
+      SET MyOrbitAltitude to 2863330. //Stock
+  //    SET MyOrbitAltitude to 8968110. //JNSQ
     } else {
       SET MyOrbitAltitude to 100000.
     }
@@ -91,23 +91,31 @@ FUNCTION LaunchMenu {
   SET launch:ONCLICK TO { SET isDone to TRUE. }.
   wait until isDone.
 
-  gui:HIDE().
+  LaunchGUI:HIDE().
 }
 
-// Up First until boosters are expendend and we are above MyAscentTurnAlt, then smooth heading changes
-FUNCTION TraditionalAscentProfile {
+// Up First until boosters are expendend, then smooth heading changes.
+FUNCTION StagedAscentProfile {
   wait until ActiveBoosters = 0.
-  set MyAscentTurnAlt to Altitude.
+  set StagedAscentTurnAlt to Altitude.
   print "Beginning Ascent Turn".
   until SHIP:APOAPSIS > MyOrbitAltitude {
-    set MyHeading to HEADING( MyOrbitAngle,MAX((90 - ( 90 * ((ALTITUDE - MyAscentTurnAlt) / (MyHeadingAltitude - MyAscentTurnAlt))^0.66)),0)).
+    set MyHeading to HEADING( MyOrbitAngle,MAX((90 - ( 90 * ((ALTITUDE - StagedAscentTurnAlt) / (MyNoAtmoOrbitAltitude - StagedAscentTurnAlt)))),0)).
   }
 }
 
 // Smooth heading change all the way up.
-FUNCTION GradualAscentProfile {
+FUNCTION GravityAscentProfile {
+  print "Beginning Gravity Turn".
   until SHIP:APOAPSIS > MyOrbitAltitude {
-    set MyHeading to HEADING( MyOrbitAngle,MAX((90 - ( 90 * (ALTITUDE / MyHeadingAltitude)^0.33)),0)).
+    set MyHeading to HEADING( MyOrbitAngle,MAX((90 - ( 90 * (ALTITUDE / MyNoAtmoOrbitAltitude)^0.8)),0)).
+  }
+}
+
+FUNCTION HighDragAscentProfile {
+  print "Beginning Orbital Turn".
+  until SHIP:APOAPSIS > MyOrbitAltitude {
+    set MyHeading to HEADING( MyOrbitAngle,MAX((90 - ( 90 * (ALTITUDE / MyNoAtmoOrbitAltitude)^2)),0)).
   }
 }
 
@@ -186,10 +194,12 @@ lock THROTTLE to MyThrottle.
 lock STEERING to MyHeading.
 stage.
 
-if MyAscentProfile = "Traditional" {
-  TraditionalAscentProfile().
-} else if MyAscentProfile = "Gradual" {
-  GradualAscentProfile().
+if MyAscentProfile = "Staged" {
+  StagedAscentProfile().
+} else if MyAscentProfile = "HighDrag" {
+  HighDragAscentProfile().
+} else if MyAscentProfile = "Gravity" {
+  GravityAscentProfile().
 }
 
 print "Standing by for orbital maneuver".
